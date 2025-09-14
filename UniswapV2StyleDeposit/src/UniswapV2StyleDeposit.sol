@@ -43,6 +43,14 @@ contract Pool is IPool {
     mapping(address depositor => uint256) public balances;
 
     function deposit() external {
-        // credit depositor with the amount that they sent to `balances` 
+        // retrieves deposited amount by comparing Pool contract balance of token xyz with stored totalDeposits value
+        uint currentPoolBalance = token.balanceOf(address(this));
+        uint depositedAmount = currentPoolBalance - totalDeposits;
+
+        // credit depositor and very importantly reset totalDeposits
+        balances[msg.sender] += depositedAmount;
+        totalDeposits = currentPoolBalance;
+
+        emit Deposit(msg.sender, depositedAmount);
     }
 }
