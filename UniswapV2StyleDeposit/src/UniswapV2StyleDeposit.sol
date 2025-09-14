@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -43,6 +43,14 @@ contract Pool is IPool {
     mapping(address depositor => uint256) public balances;
 
     function deposit() external {
-        // credit depositor with the amount that they sent to `balances` 
+        // retrieves deposited amount by comparing Pool contract balance of token xyz with stored totalDeposits value
+        uint currentPoolBalance = token.balanceOf(address(this));
+        uint depositedAmount = currentPoolBalance - totalDeposits;
+
+        // credit depositor and very importantly reset totalDeposits
+        balances[msg.sender] += depositedAmount;
+        totalDeposits = currentPoolBalance;
+
+        emit Deposit(msg.sender, depositedAmount);
     }
 }
