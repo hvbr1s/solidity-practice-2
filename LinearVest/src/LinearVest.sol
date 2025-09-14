@@ -70,6 +70,14 @@ contract LinearVest {
         uint40 duration,
         uint256 salt
     ) external {
+        require(recipient != address(0), "Recipient cannot be null address");
+        require(amount != 0, "Amount cannot be 0");
+        if (token.balanceOf(msg.sender) == 0){
+            revert("Insuficient token balance to create vest");
+        }
+        bytes32 vestId = computeVestId(token, recipient, amount, startTime, duration, salt);
+        vests[vestId] = Vest(address(token), startTime, recipient, duration, amount, 0);
+        emit VestCreated(msg.sender, recipient, address(token), amount, startTime, duration);
     }
 
     /**
