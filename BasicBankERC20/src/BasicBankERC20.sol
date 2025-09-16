@@ -34,7 +34,6 @@ contract BasicBankERC20 {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         uint balanceAfter = IERC20(token).balanceOf(address(this));
         uint actualReceipt = balanceAfter - balanceBefore;
-
         if (actualReceipt != amount) revert FeeOnTransferNotSupported();
 
         // Update Bank's accounting

@@ -32,8 +32,9 @@ contract LinearVest {
         uint256 withdrawn;
     }
 
-    mapping(bytes32 => Vest) public vests;
     bytes32[] public vestIds;
+    mapping(bytes32 => Vest) public vests;
+    mapping(bytes32 => bool) public vestExists;
     
     // Events
     event VestCreated(
@@ -53,6 +54,10 @@ contract LinearVest {
         uint256 timestamp
     );
 
+    error FeeOnTransferNotSupported();
+    error VestAlreadyExists();
+    error WithdrawalBeforeStart();
+
     /*
      * @notice Creates a vest
      * @param token The token to vest
@@ -70,13 +75,30 @@ contract LinearVest {
         uint40 duration,
         uint256 salt
     ) external {
+        require(address(token) != address(0), "Token cannot be null address");
         require(recipient != address(0), "Recipient cannot be null address");
         require(amount != 0, "Amount cannot be 0");
-        if (token.balanceOf(msg.sender) == 0){
-            revert("Insuficient token balance to create vest");
-        }
+        require(startTime >= block.timestamp, "Start time must be in the future");
+        require(duration > 0, "Duration cannot be 0");
+
+        // computer vestId and revert if it already exists
         bytes32 vestId = computeVestId(token, recipient, amount, startTime, duration, salt);
+        if (vestExists[vestId]){
+            revert VestAlreadyExists();
+        }
+
+        // revert in case of FeeOnTransfers
+        uint256 balanceBefore = token.balanceOf(address(this));
+        token.transferFrom(msg.sender, address(this), amount);
+        uint256 balanceAfter = token.balanceOf(address(this));
+        uint256 actualReceipt = balanceAfter - balanceBefore;
+        if (actualReceipt != amount){
+            revert FeeOnTransferNotSupported();
+        }
+
         vests[vestId] = Vest(address(token), startTime, recipient, duration, amount, 0);
+        vestExists[vestId] = true;
+        vestIds.push(vestId);
         emit VestCreated(msg.sender, recipient, address(token), amount, startTime, duration);
     }
 
@@ -87,6 +109,30 @@ contract LinearVest {
      * the amount withdrawable is withdrawn.
      */
     function withdrawVest(bytes32 vestId, uint256 amount) external {
+        // checks vest exists, msg.sender is recipient and vest has started
+        require(vestExists[vestId]);
+        require(msg.sender == vests[vestId].recipient, "MsgSender is not recipient!");
+        if (block.timestamp < vests[vestId].startTime) {
+            revert WithdrawalBeforeStart();
+        }
+
+        // handle full and partial vests
+        uint elapsedTime = block.timestamp - vests[vestId].startTime;
+        uint vestedAmount;
+        if (elapsedTime >= vests[vestId].duration) {
+            vestedAmount = vests[vestId].amount; 
+        } else {
+            vestedAmount = (vests[vestId].amount * elapsedTime) /
+        vests[vestId].duration;
+        }
+
+        uint withdrawable = vestedAmount - vests[vestId].withdrawn;
+        uint toWithdraw = amount < withdrawable ? amount : withdrawable;
+        if (amount == type(uint).max) {
+            toWithdraw = withdrawable;
+        }
+        vests[vestId].withdrawn = vests[vestId].withdrawn + toWithdraw;
+        IERC20(vests[vestId].token).transfer(vests[vestId].recipient, toWithdraw);
     }
 
     /*
@@ -107,5 +153,6 @@ contract LinearVest {
         uint40 duration,
         uint256 salt
     ) public pure returns (bytes32) {
+        return keccak256(abi.encode(address(token), recipient, amount, startTime, duration, salt));
     }
 }
