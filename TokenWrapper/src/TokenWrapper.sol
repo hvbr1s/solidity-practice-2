@@ -26,23 +26,48 @@ contract TokenWrapper is ERC20 {
     using SafeERC20 for IERC20Metadata;
 
     uint8 internal immutable decimalsInternal;
-    string internal nameInternal;
-    string internal symbolInternal;
+    address public underlyingToken;
 
     event Wrap(address indexed from, uint256 amount);
     event Unwrap(address indexed to, uint256 amount);
 
-    constructor(address _token) ERC20("", "") {
+    constructor(address _token) ERC20(
+      _getName(_token),
+      _getSymbol(_token)
+    ) {
+       underlyingToken = _token;
+       token = IERC20Metadata(_token);
+       decimalsInternal = _getDecimals(_token);
+    }
+
+    function _getName(address _token) private view returns (string memory) {
+        try IERC20Metadata(_token).name() returns (string memory tokenName) {
+            return string.concat("Wrapped ", tokenName);
+        } catch {
+            return "Wrapped";
+        }
+    }
+
+    function _getSymbol(address _token) private view returns (string memory) {
+        try IERC20Metadata(_token).symbol() returns (string memory tokenSymbol) {
+            return string.concat("w", tokenSymbol);
+        } catch {
+            return "w";
+        }
+    }
+
+    function _getDecimals(address _token) private view returns (uint8) {
+        try IERC20Metadata(_token).decimals() returns (uint8 tokenDecimals) {
+            return tokenDecimals;
+        } catch {
+            return 0;
+        }
     }
 
     function decimals() public view override returns (uint8) {
+      return decimalsInternal;
     }
 
-    function name() public view override returns (string memory) {
-    }
-
-    function symbol() public view override returns (string memory) {
-    }
 
     /**
       * @notice Wraps the amount of tokens from the caller's account to the contract
@@ -50,6 +75,15 @@ contract TokenWrapper is ERC20 {
       * @param amount The amount of tokens to wrap
       */ 
     function wrap(uint256 amount) external {
+      require(amount > 0, "Amount to wrap must not be zero!");
+      require(IERC20(underlyingToken).allowance(msg.sender, address(this)) >= amount, "Insufficient allowance!");
+
+      IERC20(underlyingToken).transferFrom(msg.sender, address(this), amount);
+
+      _mint(msg.sender, amount);
+
+      emit Wrap(msg.sender, amount);
+
     }
 
     /** 
@@ -58,5 +92,12 @@ contract TokenWrapper is ERC20 {
       * @param amount The amount of tokens to unwrap
       */ 
     function unwrap(uint256 amount) external {
+        require(amount > 0, "Amount must be greater than zero");
+        require(balanceOf(msg.sender) >= amount, "Insufficient balance");
+
+        _burn(msg.sender, amount);
+        IERC20(underlyingToken).transfer(msg.sender, amount);
+
+        emit Unwrap(msg.sender, amount);
     }
 }
