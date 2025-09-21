@@ -21,8 +21,10 @@ contract LinearDutchAuctionFactory {
         uint256 _amount,
         address _seller
     ) external returns (address) {
+        require(_seller != address(0));
+        require(_startingPriceEther != 0);
         require(_startTime >= block.timestamp, "Invalid start time!");
-        require(_duration >= 1 days);
+        require(_duration > 0);
         LinearDutchAuction auction = new LinearDutchAuction(_token, _startingPriceEther, _startTime, _duration, _seller);
         auctions.push(auction);
         bool transfer = IERC20(_token).transferFrom(msg.sender, address(auction), _amount);
@@ -84,6 +86,19 @@ contract LinearDutchAuction {
      * @return the current price of the token in Ether
      */ 
     function currentPrice() public view returns (uint256) {
+      require(block.timestamp >= startTime, "Auction not started yet");
+
+      uint deadline = startTime + durationSeconds;
+      require(token.balanceOf(address(this)) != 0, "Token already purchased");
+
+      if (block.timestamp >= deadline) {
+          return 0;
+      }
+
+      uint remainingTime = deadline - block.timestamp;
+      uint currentPrice = (startingPriceEther * remainingTime) / durationSeconds;
+
+      return currentPrice;
     }
 
     /*
@@ -95,5 +110,34 @@ contract LinearDutchAuction {
      * @dev Will try to refund the user if they send too much ether. If the refund reverts, the transaction still succeeds.
      */
     receive() external payable {
+        require(block.timestamp >= startTime, "Auction not started yet");
+
+        uint deadline = startTime + durationSeconds;
+        uint tokenBalance = token.balanceOf(address(this));
+        require(tokenBalance > 0, "Token already purchased");
+
+        uint price;
+        if (block.timestamp >= deadline) {
+            price = 0;
+        } else {
+            uint remainingTime = deadline - block.timestamp;
+            price = (startingPriceEther * remainingTime) / durationSeconds;
+        }
+
+        require(msg.value >= price, "Not enough Ether");
+
+        if (price > 0) {
+            (bool k, ) = seller.call{value: price}("");
+            if (!k) {
+                revert SendEtherToSellerFailed();
+            }
+        }
+
+        if (msg.value > price) {
+            uint toRefund = msg.value - price;
+            msg.sender.call{value: toRefund}("");
+        }
+
+        token.transfer(msg.sender, tokenBalance);
     }
 }
