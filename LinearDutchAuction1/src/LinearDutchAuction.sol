@@ -8,6 +8,9 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 // In a single transaction, the factory creates the auction and the token is transferred from the user to the auction.
 contract LinearDutchAuctionFactory {
     using SafeERC20 for IERC20;
+    LinearDutchAuction[] public auctions;
+
+
     event AuctionCreated(address indexed auction, address indexed token, uint256 startingPriceEther, uint256 startTime, uint256 duration, uint256 amount, address seller);
 
     function createAuction(
@@ -18,6 +21,17 @@ contract LinearDutchAuctionFactory {
         uint256 _amount,
         address _seller
     ) external returns (address) {
+        require(_startTime >= block.timestamp, "Invalid start time!");
+        require(_duration >= 1 days);
+        LinearDutchAuction auction = new LinearDutchAuction(_token, _startingPriceEther, _startTime, _duration, _seller);
+        auctions.push(auction);
+        bool transfer = IERC20(_token).transferFrom(msg.sender, address(auction), _amount);
+        if (transfer){
+            emit AuctionCreated(address(auction), address(_token), _startingPriceEther, _startTime, _duration, _amount, _seller);
+            return address(auction);
+        } else {
+            revert();
+        }
     }
 }
 
@@ -55,6 +69,11 @@ contract LinearDutchAuction {
         uint256 _durationSeconds,
         address _seller
     ) {
+        token = _token;
+        startingPriceEther = _startingPriceEther;
+        startTime = _startTime;
+        durationSeconds = _durationSeconds;
+        seller = _seller;
     }
 
     /*
