@@ -32,6 +32,10 @@ contract OraclePool is Ownable2Step {
         address _stablecoin,
         uint256 _feeBasisPoints,
         uint256 _ethToUSDRate) Ownable(msg.sender) {
+            WETH = IERC20(_weth);
+            STABLECOIN = IERC20(_stablecoin);
+            feeBasisPoints = _feeBasisPoints;
+            ethToUSDRate = _ethToUSDRate;
     }
 
     /*
@@ -44,6 +48,31 @@ contract OraclePool is Ownable2Step {
      * @return amountOut The amount of WETH the user received.
      */
     function buyWETH(uint256 amountStableIn, uint256 amountOutMin) external returns (uint256 amountOut) {
+        amountOut = (amountStableIn * 1e20) / ethToUSDRate;
+
+        // fee
+        uint feeAmount = (amountOut * feeBasisPoints) / 10000;
+        amountOut = amountOut - feeAmount;
+
+        // check slippage
+        if (amountOut < amountOutMin) {
+            revert Slippage();
+        }
+
+        // check reserves
+        uint contractWethBalance = WETH.balanceOf(address(this));
+        if (amountOut > contractWethBalance){
+            revert InsufficientReserves();
+        }
+
+        // transfer stables from buyer
+        bool ts = STABLECOIN.transferFrom(msg.sender, address(this), amountStableIn);
+        require(ts, "Stable transfer to contract failed!");
+
+        // transfer weth to buyer
+        bool tw = WETH.transfer(msg.sender, amountOut);
+        require(tw, "WETH transfer to msg.sender failed!");
+        emit SwapStableToWeth(msg.sender, amountStableIn, amountOut);
     }
 
     /* 
@@ -56,8 +85,35 @@ contract OraclePool is Ownable2Step {
      * @return amountOut The amount of stablecoin the user received.
      */
     function sellWETH(uint256 amountWethIn, uint256 amountOutMin) external returns (uint256 amountOut) {
+        // calculate stable amount
+        amountOut = (amountWethIn * ethToUSDRate) / 1e20;
+        // fee
+        uint feeAmount = (amountOut * feeBasisPoints) / 10000;
+        amountOut = amountOut - feeAmount;
+        // slippage
+        if(amountOut < amountOutMin){
+            revert Slippage();
+        }
+        // check reserves
+        uint contractStableBalance = STABLECOIN.balanceOf(address(this));
+        if (amountOut > contractStableBalance){
+            revert InsufficientReserves();
+        }
+        // transfer weth from msg.sender
+        bool tw = WETH.transferFrom(msg.sender, address(this), amountWethIn);
+        require(tw, "Failed to transfer WETH from msg.sender");
+        // transfer stable to msg.sender
+        bool ts = STABLECOIN.transfer(msg.sender, amountOut);
+        require(ts, "Failed to transfer stable to msg.sender");
+
+        emit SwapWethToStable(msg.sender, amountWethIn, amountOut);
     }
 
     function setExchangeRate(uint256 _ethToUSDRate) external onlyOwner {
+        uint oldXrate = ethToUSDRate;
+        ethToUSDRate = _ethToUSDRate;
+        emit ExchangeRateUpdated(oldXrate, ethToUSDRate);
+
+
     }
 }
